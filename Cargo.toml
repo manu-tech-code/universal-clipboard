@@ -1,0 +1,12 @@
+[workspace]
+resolver = "2"
+members = ["crates/uclip-core", "crates/uclip", "crates/uclip-menubar"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+
+[profile.release]
+lto = "thin"
+strip = true

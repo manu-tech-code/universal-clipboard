@@ -1,0 +1,907 @@
+<title>Universal Clipboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap">
+<style>
+/* Layout: control strip on top, mesh beside composer, one card per device, history beside transfers. */
+:root{
+  --bg:#EDF0F4; --surface:#FFFFFF; --surface-2:#F3F5F8; --ink:#0E1620; --ink-2:#47535F; --ink-3:#6E7B88;
+  --line:#D3D9E0; --accent:#2446F2; --accent-soft:#E2E8FF; --on-accent:#FFFFFF; --ok:#12804F; --warn:#A8620A;
+  --font-ui:'Schibsted Grotesk',system-ui,-apple-system,'Segoe UI',sans-serif;
+  --font-mono:'IBM Plex Mono',ui-monospace,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0B1016; --surface:#141B23; --surface-2:#1B242E; --ink:#E7ECF1; --ink-2:#A4B0BC; --ink-3:#74818E;
+  --line:#26313C; --accent:#7189FF; --accent-soft:#1D2956; --on-accent:#0B1016; --ok:#4CC38A; --warn:#E3A24B; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0B1016; --surface:#141B23; --surface-2:#1B242E; --ink:#E7ECF1; --ink-2:#A4B0BC; --ink-3:#74818E;
+  --line:#26313C; --accent:#7189FF; --accent-soft:#1D2956; --on-accent:#0B1016; --ok:#4CC38A; --warn:#E3A24B; color-scheme:dark}
+
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+body{background:var(--bg);color:var(--ink);font:15px/1.5 var(--font-ui);-webkit-font-smoothing:antialiased}
+h1,h2,h3,p,ul,ol{margin:0}
+ul,ol{padding:0;list-style:none}
+button{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.app{max-width:1180px;margin-inline:auto;padding-inline:16px;padding-block:20px 56px;display:flex;flex-direction:column;gap:18px}
+.mono{font-family:var(--font-mono);font-size:.92em}
+.ic{flex:none}
+
+/* header */
+.top{display:flex;flex-wrap:wrap;align-items:center;gap:12px 20px}
+.brand{display:flex;align-items:center;gap:12px;margin-right:auto;min-width:0}
+.mark{width:38px;height:38px;border-radius:10px;background:var(--accent);color:var(--on-accent);display:grid;place-items:center;flex:none}
+.brand h1{font-size:19px;font-weight:700;letter-spacing:-.01em;line-height:1.2}
+.brand p{font-size:12.5px;color:var(--ink-3)}
+.tabs{display:flex;gap:4px;padding:3px;background:var(--surface-2);border:1px solid var(--line);border-radius:10px}
+.tabs button{border:0;background:none;padding:6px 14px;border-radius:7px;cursor:pointer;color:var(--ink-2);font-weight:500}
+.tabs button[aria-selected="true"]{background:var(--surface);color:var(--ink);box-shadow:0 0 0 1px var(--line)}
+.btn{border:1px solid var(--line);background:var(--surface);padding:8px 13px;border-radius:8px;cursor:pointer;font-weight:500;display:inline-flex;align-items:center;gap:7px;line-height:1.2}
+.btn:hover{border-color:var(--ink-3)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--on-accent);font-weight:600}
+.btn.primary:hover{filter:brightness(1.07)}
+.btn.sm{padding:5px 9px;font-size:13px}
+.btn.ghost{background:none}
+.btn:disabled{opacity:.5;cursor:default}
+
+/* network strip */
+.net{display:grid;grid-template-columns:auto 1fr auto;gap:12px 24px;align-items:center}
+.seg{display:flex;flex-wrap:wrap;gap:4px;padding:3px;background:var(--surface-2);border:1px solid var(--line);border-radius:10px}
+.seg button{border:0;background:none;padding:7px 13px;border-radius:7px;cursor:pointer;font-weight:500;color:var(--ink-2)}
+.seg button[aria-checked="true"]{background:var(--accent);color:var(--on-accent)}
+.net-note{color:var(--ink-2);font-size:14px;max-width:70ch}
+.stats{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:8px 32px;padding-top:12px;border-top:1px solid var(--line)}
+.stat-i{display:flex;flex-direction:column;min-width:0}
+.stat-i span{font-size:11.5px;text-transform:uppercase;letter-spacing:.08em;color:var(--ink-3)}
+.stat-i b{font-weight:600;font-variant-numeric:tabular-nums}
+
+/* panels */
+.stage{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,6fr);gap:18px}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:18px;display:flex;flex-direction:column;gap:14px;min-width:0}
+.panel>h2,.ph h2{font-size:12px;text-transform:uppercase;letter-spacing:.09em;color:var(--ink-3);font-weight:600}
+.ph{display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.ph small{color:var(--ink-3);font-size:12.5px}
+
+/* mesh */
+.meshwrap{position:relative}
+#mesh{width:100%;height:auto;display:block}
+.lk{stroke-linecap:round;fill:none;opacity:.5;stroke-width:2}
+.lk.lan{stroke:var(--accent)}
+.lk.ts{stroke:var(--accent);stroke-dasharray:7 6}
+.lk.relay{stroke:var(--ink-3);stroke-dasharray:1.5 6;stroke-width:2.6}
+.lk.apple{stroke:var(--ink-2);stroke-dasharray:12 4 2 4;stroke-width:2.4}
+.lk.flow{opacity:1;stroke-width:3.2}
+.lk.hot{opacity:1;stroke-width:3.2;stroke-dasharray:5 8;animation:flow .5s linear infinite}
+@keyframes flow{to{stroke-dashoffset:-13}}
+.lat{font:500 11px var(--font-mono);fill:var(--ink-2);paint-order:stroke;stroke:var(--surface);stroke-width:5px;stroke-linejoin:round}
+.node{cursor:pointer;color:var(--ink)}
+.node .body{fill:var(--surface);stroke:var(--line);stroke-width:1.5}
+.node:hover .body{stroke:var(--ink-3)}
+.node.sel{color:var(--on-accent)}
+.node.sel .body{fill:var(--accent);stroke:var(--accent)}
+.node .on{fill:var(--ok);stroke:var(--surface);stroke-width:2.5}
+.node.off{opacity:.42;cursor:not-allowed}
+.node.off .on{fill:var(--ink-3)}
+.node text{font:600 13px var(--font-ui);fill:var(--ink);text-anchor:middle;paint-order:stroke;stroke:var(--surface);stroke-width:5px}
+.node text.os{font:400 11.5px var(--font-ui);fill:var(--ink-3)}
+.pkt{fill:var(--accent);stroke:var(--surface);stroke-width:2}
+.pulse{fill:none;stroke:var(--accent);stroke-width:2;transform-box:fill-box;transform-origin:center;animation:pulse .9s ease-out forwards}
+@keyframes pulse{from{transform:scale(1);opacity:.9}to{transform:scale(2.1);opacity:0}}
+.legend{display:flex;flex-wrap:wrap;gap:6px 18px;font-size:12.5px;color:var(--ink-2)}
+.legend span{display:inline-flex;align-items:center;gap:8px}
+.legend svg{width:32px;height:8px;overflow:visible}
+.legend .lk{opacity:1}
+
+/* composer */
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.cbtn{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:6px 10px;cursor:pointer;font-weight:500;font-size:13.5px;color:var(--ink-2)}
+.cbtn:hover{border-color:var(--ink-3)}
+.cbtn:disabled{opacity:.45;cursor:not-allowed}
+.cbtn[aria-pressed="true"]{background:var(--accent-soft);border-color:var(--accent);color:var(--ink)}
+.cbtn[aria-pressed="true"] .ic{color:var(--accent)}
+.sub{display:flex;gap:18px;border-bottom:1px solid var(--line)}
+.sub button{border:0;background:none;padding:6px 2px 10px;cursor:pointer;color:var(--ink-3);font-weight:600;border-bottom:2px solid transparent;margin-bottom:-1px}
+.sub button[aria-selected="true"]{color:var(--ink);border-color:var(--accent)}
+label.l,.lbl{font-size:12.5px;color:var(--ink-3);font-weight:500}
+textarea{width:100%;resize:vertical;font:inherit;color:var(--ink);background:var(--surface-2);border:1px solid var(--line);border-radius:8px;padding:10px 12px;min-height:76px}
+textarea:focus-visible{outline-offset:0;border-color:var(--accent)}
+.draft{display:flex;align-items:center;gap:12px;padding:10px 12px;background:var(--surface-2);border:1px solid var(--line);border-radius:8px;min-height:76px}
+.actions{display:flex;flex-wrap:wrap;align-items:center;gap:10px 14px}
+.hint{font-size:13px;color:var(--ink-3);flex:1;min-width:200px}
+.drop{border:1.5px dashed var(--ink-3);border-radius:10px;padding:20px 14px;text-align:center;color:var(--ink-2);background:var(--surface-2);cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:4px}
+.drop.over{border-color:var(--accent);background:var(--accent-soft)}
+.drop b{color:var(--accent);font-weight:600}
+.staged{display:flex;flex-direction:column;gap:6px}
+.staged li{display:flex;align-items:center;gap:10px;padding:7px 10px;border:1px solid var(--line);border-radius:8px;font-size:13.5px}
+.staged li .n{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.staged li small,.sz{color:var(--ink-3);font-family:var(--font-mono);font-size:12px}
+.x{border:0;background:none;cursor:pointer;color:var(--ink-3);padding:2px 6px;font-size:16px;line-height:1}
+.x:hover{color:var(--ink)}
+.row{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px}
+.switch{display:inline-flex;align-items:center;gap:8px;font-size:13.5px;color:var(--ink-2);cursor:pointer}
+.switch input{appearance:none;width:34px;height:20px;border-radius:999px;background:var(--line);position:relative;cursor:pointer;margin:0;transition:background .15s}
+.switch input::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:var(--surface);transition:transform .15s}
+.switch input:checked{background:var(--accent)}
+.switch input:checked::after{transform:translateX(14px)}
+
+/* type chips + previews */
+.tchip{width:28px;height:28px;border-radius:7px;background:var(--surface-2);border:1px solid var(--line);display:inline-grid;place-items:center;color:var(--ink-2);flex:none}
+.pv{display:flex;flex-direction:column;min-width:0;overflow-wrap:anywhere;font-size:14px;line-height:1.4}
+.pv small{color:var(--ink-3);font-size:12px}
+.pv.lnk{color:var(--accent);text-decoration:underline;text-underline-offset:2px}
+.thumb{width:54px;height:34px;object-fit:cover;border-radius:5px;border:1px solid var(--line);flex:none}
+.prev{display:flex;align-items:center;gap:10px;min-width:0}
+
+/* device cards */
+.devices{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:14px}
+.dev{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px;display:flex;flex-direction:column;gap:12px;min-width:0}
+.dev.isSrc{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+.dev.flash{animation:flash 1.1s ease-out}
+@keyframes flash{from{background:var(--accent-soft)}to{background:var(--surface)}}
+.chead{display:flex;align-items:flex-start;gap:10px}
+.chead .tchip{width:36px;height:36px;border-radius:9px;color:var(--ink)}
+.chead h3{font-size:15px;font-weight:600;line-height:1.25}
+.chead p{font-size:12.5px;color:var(--ink-3);line-height:1.35}
+.chead>div{min-width:0;flex:1}
+.badge{font:500 11.5px var(--font-mono);border:1px solid var(--line);border-radius:999px;padding:2px 9px;white-space:nowrap;display:inline-flex;align-items:center;gap:6px;color:var(--ink-2);flex:none}
+.badge i{width:7px;height:7px;border-radius:50%;background:var(--accent);display:block}
+.badge.ts i{background:none;border:1.5px solid var(--accent)}
+.badge.relay i{background:var(--ink-3)}
+.badge.sel{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.badge.apple i{background:var(--ink-2)}
+.badge.off{color:var(--warn);border-color:var(--warn)}
+.badge.off i{background:var(--warn)}
+.dev.offline{background:var(--surface-2)}
+.dev.offline .clip{background:var(--surface)}
+.warnnote{font-size:13px;color:var(--ink-2);line-height:1.45}
+.callout{border:1px solid var(--line);border-left:3px solid var(--ink-2);border-radius:8px;padding:12px 14px;background:var(--surface-2)}
+.callout b{font-weight:600}
+.checks{display:flex;flex-direction:column;gap:6px}
+.checks li{display:grid;grid-template-columns:70px minmax(0,1fr);gap:10px;align-items:baseline}
+.checks .tag{font:500 12px var(--font-mono);text-transform:uppercase;letter-spacing:.06em}
+.checks .tag.ok{color:var(--ok)}
+.checks .tag.todo{color:var(--warn)}
+.clip{display:flex;flex-direction:column;gap:6px;padding:10px;background:var(--surface-2);border-radius:8px;min-height:74px}
+.clip .src{font-size:12px;color:var(--ink-3)}
+.pad{display:flex;flex-direction:column;gap:6px;min-height:78px;max-height:160px;overflow:auto;border:1px solid var(--line);border-radius:8px;padding:8px}
+.pad .empty{color:var(--ink-3);font-size:13px;margin:auto}
+.pi{font-size:13.5px;overflow-wrap:anywhere;padding-bottom:6px;border-bottom:1px solid var(--line)}
+.pi:last-child{border-bottom:0;padding-bottom:0}
+.pi img{max-width:100%;max-height:70px;border-radius:5px;display:block}
+.pi.fileitem{display:flex;gap:10px;align-items:flex-start}
+.pi.fileitem>div{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px}
+.pi small{color:var(--ink-3);font-size:12px;font-variant-numeric:tabular-nums}
+.cfoot{display:flex;gap:8px;align-items:center}
+kbd{font:500 11.5px var(--font-mono);padding:1px 6px;border:1px solid var(--line);border-bottom-width:2px;border-radius:5px;background:var(--surface-2);color:var(--ink-2)}
+.btn.primary kbd{background:transparent;border-color:color-mix(in srgb,var(--on-accent) 50%,transparent);color:var(--on-accent)}
+
+/* lists */
+.lower{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:18px;align-items:start}
+.items{display:flex;flex-direction:column}
+.items>li{display:flex;gap:12px;align-items:flex-start;padding:11px 0;border-top:1px solid var(--line)}
+.items>li:first-child{border-top:0;padding-top:2px}
+.hb,.tb{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
+.hm,.tm{font-size:12.5px;color:var(--ink-3)}
+.tn{font-weight:500;overflow-wrap:anywhere}
+.bar{height:6px;background:var(--line);border-radius:3px;overflow:hidden}
+.bar i{display:block;height:100%;background:var(--accent);width:0}
+.stat{font-size:12.5px;color:var(--ink-2);font-variant-numeric:tabular-nums}
+.empty-l{color:var(--ink-3);font-size:14px;padding:6px 0}
+.tact{display:flex;gap:6px;margin-top:4px}
+
+/* toasts + modal */
+.toasts{position:fixed;left:16px;right:16px;bottom:calc(16px + env(safe-area-inset-bottom,0px));display:flex;flex-direction:column;gap:8px;align-items:flex-start;pointer-events:none;z-index:30}
+.toast{background:var(--ink);color:var(--bg);padding:9px 14px;border-radius:9px;font-size:13.5px;max-width:min(520px,100%);animation:rise .2s ease-out}
+@keyframes rise{from{transform:translateY(8px);opacity:0}}
+.modal{position:fixed;inset:0;background:color-mix(in srgb,var(--bg) 70%,transparent);backdrop-filter:blur(4px);display:grid;place-items:center;padding:16px;z-index:40}
+.sheet{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:22px;width:min(440px,100%);display:flex;flex-direction:column;gap:14px;box-shadow:0 20px 60px rgba(0,0,0,.25)}
+.sheet h2{font-size:18px}
+.sheet p{color:var(--ink-2);font-size:14px}
+.qrrow{display:flex;gap:18px;align-items:center;flex-wrap:wrap}
+#qr{width:132px;height:132px;border-radius:8px;border:1px solid var(--line);image-rendering:pixelated;flex:none}
+.code{font:500 28px var(--font-mono);letter-spacing:.12em}
+.sheet .acts{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap}
+
+/* how it works */
+.how{display:flex;flex-direction:column;gap:18px}
+.how .lede{font-size:17px;color:var(--ink-2);max-width:62ch}
+.how h2.s{font-size:13px;text-transform:uppercase;letter-spacing:.09em;color:var(--ink-3);font-weight:600}
+.how .panel p,.how li p{color:var(--ink-2)}
+.ladder{display:flex;flex-direction:column}
+.rung{display:grid;grid-template-columns:150px minmax(0,1fr) 110px;gap:6px 18px;padding:14px 0;border-top:1px solid var(--line);align-items:start}
+.rung:first-child{border-top:0;padding-top:0}
+.rung h3{font-size:15px;display:flex;align-items:center;gap:10px}
+.rung svg{width:34px;height:8px;overflow:visible}
+.rung .lk{opacity:1}
+.rung .ms{font:500 13px var(--font-mono);text-align:right;color:var(--ink-2)}
+.steps{counter-reset:s;display:flex;flex-direction:column;gap:14px}
+.steps li{counter-increment:s;display:grid;grid-template-columns:28px minmax(0,1fr);gap:12px}
+.steps li::before{content:counter(s);width:28px;height:28px;border-radius:50%;background:var(--accent-soft);color:var(--accent);font:600 13px var(--font-mono);display:grid;place-items:center}
+.steps b{display:block;font-weight:600}
+.twocol{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}
+.tablewrap{overflow-x:auto}
+table{border-collapse:collapse;width:100%;min-width:560px;font-size:14px}
+th,td{text-align:left;padding:10px 12px 10px 0;border-top:1px solid var(--line);vertical-align:top}
+th{font-size:11.5px;text-transform:uppercase;letter-spacing:.08em;color:var(--ink-3);font-weight:600;border-top:0}
+td:first-child{font-weight:600;white-space:nowrap}
+td p{color:var(--ink-2)}
+.phases{display:flex;flex-direction:column;gap:10px}
+.phases li{display:grid;grid-template-columns:78px minmax(0,1fr);gap:12px;align-items:baseline}
+.phases .tag{font:500 12px var(--font-mono);color:var(--accent);text-transform:uppercase;letter-spacing:.06em}
+
+@media (max-width:900px){
+  .stage,.lower,.twocol{grid-template-columns:minmax(0,1fr)}
+  .net{grid-template-columns:minmax(0,1fr)}
+  .rung{grid-template-columns:minmax(0,1fr)}
+  .rung .ms{text-align:left}
+}
+@media (prefers-reduced-motion:reduce){
+  *{animation-duration:.01ms!important;animation-iteration-count:1!important}
+}
+</style>
+
+<div class="app">
+  <header class="top">
+    <div class="brand">
+      <span class="mark" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="3" width="8" height="4" rx="1"/><path d="M8 5H6.5A1.5 1.5 0 0 0 5 6.5v13A1.5 1.5 0 0 0 6.5 21h11a1.5 1.5 0 0 0 1.5-1.5v-13A1.5 1.5 0 0 0 17.5 5H16"/><path d="M9 13h6m-2.5-2.5L15 13l-2.5 2.5"/></svg></span>
+      <div><h1>Universal Clipboard</h1><p>Interactive prototype with example devices</p></div>
+    </div>
+    <div class="tabs" role="tablist" aria-label="View">
+      <button role="tab" id="tab-demo" aria-selected="true" data-view="demo">Prototype</button>
+      <button role="tab" id="tab-how" aria-selected="false" data-view="how">How it works</button>
+    </div>
+    <button class="btn" id="pairBtn">Pair a device</button>
+  </header>
+
+  <main id="view-demo" class="app" style="padding:0;max-width:none">
+    <section class="panel net" aria-label="Network">
+      <div class="seg" role="radiogroup" aria-label="Network route" id="modes">
+        <button role="radio" aria-checked="true" data-mode="lan">Same Wi-Fi</button>
+        <button role="radio" aria-checked="false" data-mode="ts">Away, on Tailscale</button>
+        <button role="radio" aria-checked="false" data-mode="relay">Relay only</button>
+      </div>
+      <p class="net-note" id="netNote"></p>
+      <label class="switch" title="Put the MacBook to sleep to see what happens to the iPhone"><input type="checkbox" id="macSleep"> MacBook asleep</label>
+      <div class="stats" id="netStats"></div>
+    </section>
+
+    <div class="stage">
+      <section class="panel" aria-label="Device network">
+        <div class="ph"><h2>Your devices</h2><small>Select a device to send from it</small></div>
+        <div class="meshwrap">
+          <svg id="mesh" viewBox="0 0 520 360" role="group" aria-label="Connections between your devices">
+            <g id="links"></g><g id="packets"></g><g id="nodes"></g>
+          </svg>
+        </div>
+        <div class="legend" aria-label="Line styles">
+          <span><svg viewBox="0 0 32 8"><line class="lk lan" x1="0" y1="4" x2="32" y2="4"/></svg>Direct on Wi-Fi</span>
+          <span><svg viewBox="0 0 32 8"><line class="lk ts" x1="0" y1="4" x2="32" y2="4"/></svg>Direct over Tailscale</span>
+          <span><svg viewBox="0 0 32 8"><line class="lk relay" x1="0" y1="4" x2="32" y2="4"/></svg>Through a relay</span>
+          <span><svg viewBox="0 0 32 8"><line class="lk apple" x1="0" y1="4" x2="32" y2="4"/></svg>Apple Continuity</span>
+        </div>
+      </section>
+
+      <section class="panel" aria-label="Send">
+        <div class="ph"><h2>Send from</h2></div>
+        <div class="chips" id="fromChips"></div>
+        <div class="sub" role="tablist" aria-label="What to send">
+          <button role="tab" id="sub-clipboard" aria-selected="true" data-sub="clipboard">Clipboard</button>
+          <button role="tab" id="sub-files" aria-selected="false" data-sub="files">Files</button>
+        </div>
+
+        <div id="paneClipboard" style="display:flex;flex-direction:column;gap:12px">
+          <label class="l" for="clipText">Copy something on this device</label>
+          <textarea id="clipText" rows="3"></textarea>
+          <div class="draft" id="draftBox" hidden></div>
+          <div class="chips" id="clipSamples" aria-label="Examples"></div>
+          <div class="actions">
+            <button class="btn primary" id="copyBtn"></button>
+            <p class="hint" id="copyHint"></p>
+          </div>
+        </div>
+
+        <div id="paneFiles" hidden style="display:none;flex-direction:column;gap:12px">
+          <div class="drop" id="drop" tabindex="0" role="button" aria-label="Choose files to send">
+            <span>Drop files here or <b>browse</b></span>
+            <small class="sz">Any size. Streams directly, resumes if the link drops.</small>
+          </div>
+          <input type="file" id="fileIn" multiple hidden>
+          <div class="chips" id="fileSamples" aria-label="Example files"></div>
+          <ul class="staged" id="staged"></ul>
+          <div class="row"><span class="lbl">Send to</span><div class="chips" id="toChips"></div></div>
+          <div class="actions">
+            <button class="btn primary" id="sendBtn" disabled>Send</button>
+            <label class="switch"><input type="checkbox" id="ask"> Ask before receiving</label>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <section aria-label="Devices">
+      <div class="ph" style="margin-bottom:10px"><h2 style="font-size:12px;text-transform:uppercase;letter-spacing:.09em;color:var(--ink-3);font-weight:600">What each device sees</h2><small>Paste on any device to try it</small></div>
+      <div class="devices" id="devices"></div>
+    </section>
+
+    <div class="lower">
+      <section class="panel" aria-label="Clipboard history">
+        <div class="ph"><h2>Clipboard history</h2><small>Synced across all devices</small></div>
+        <ul class="items" id="history"></ul>
+      </section>
+      <section class="panel" aria-label="Transfers">
+        <div class="ph"><h2>Transfers</h2><small>Long transfers play faster than real time here</small></div>
+        <ul class="items" id="transfers"></ul>
+      </section>
+    </div>
+  </main>
+
+  <main id="view-how" class="how" hidden>
+    <p class="lede">Your devices connect directly whenever a route exists. A relay carries encrypted traffic only when nothing else works, and it never sees what you copy.</p>
+
+    <section class="panel">
+      <div class="ph"><h2>Finding a route</h2><small>Wi-Fi, Tailscale and relay are tried at once, and the fastest wins</small></div>
+      <div class="ladder">
+        <div class="rung">
+          <h3><svg viewBox="0 0 34 8"><line class="lk lan" x1="0" y1="4" x2="34" y2="4"/></svg>Same Wi-Fi</h3>
+          <p>Devices announce themselves with mDNS (the same family as Bonjour) and connect straight to each other. No account, no internet, works on a plane.</p>
+          <span class="ms">2 to 9 ms</span>
+        </div>
+        <div class="rung">
+          <h3><svg viewBox="0 0 34 8"><line class="lk ts" x1="0" y1="4" x2="34" y2="4"/></svg>Tailscale</h3>
+          <p>The app treats your tailnet as one more network. It reads the peer list from Tailscale, then connects over the 100.x addresses. Tailscale does the NAT traversal and falls back to its own relays when a phone sits behind carrier NAT.</p>
+          <span class="ms">20 to 50 ms</span>
+        </div>
+        <div class="rung">
+          <h3><svg viewBox="0 0 34 8"><line class="lk relay" x1="0" y1="4" x2="34" y2="4"/></svg>Relay</h3>
+          <p>An optional rendezvous server forwards ciphertext over WebSocket when two devices cannot reach each other any other way. It holds no keys. Skip it entirely if you only use Wi-Fi and Tailscale.</p>
+          <span class="ms">55 to 130 ms</span>
+        </div>
+        <div class="rung">
+          <h3><svg viewBox="0 0 34 8"><line class="lk apple" x1="0" y1="4" x2="34" y2="4"/></svg>Apple Continuity</h3>
+          <p>Only between the MacBook and the iPhone. Apple's own software carries it over Bluetooth and its private Wi-Fi link, so we do not touch it. The MacBook app watches the result and passes it on.</p>
+          <span class="ms">Felt instant</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="ph"><h2>The iPhone, without an iPhone app</h2><small>Apple already syncs Mac and iPhone, so the MacBook becomes the bridge</small></div>
+      <div class="twocol">
+        <ol class="steps">
+          <li><div><b>iPhone to everything else</b><p>You copy on the iPhone. Apple delivers it to the MacBook clipboard. Our Mac app sees the change and sends it to Windows, Android and Linux.</p></div></li>
+          <li><div><b>Everything else to iPhone</b><p>Copy on Windows. Our Mac app writes it to the MacBook clipboard. Apple then lets you paste it on the iPhone as usual.</p></div></li>
+        </ol>
+        <div class="callout"><p><b>The catch.</b> The MacBook has to be awake and near the iPhone. If it sleeps or leaves, the iPhone drops out of your circle until it is back. Try the "MacBook asleep" switch on the Prototype tab. A small iPhone app for those moments comes later.</p></div>
+      </div>
+      <ul class="checks">
+        <li><span class="tag ok">Tested</span><p>A copy on a real iPhone showed up on the Mac clipboard, tagged by Apple as coming from another device. That tag lets us avoid echo loops.</p></li>
+        <li><span class="tag ok">Tested</span><p>Text written to the Mac clipboard by a background program pasted instantly on the iPhone.</p></li>
+        <li><span class="tag todo">To check</span><p>Images and files from the iPhone, a locked iPhone, a sleeping Mac, and a long idle gap.</p></li>
+      </ul>
+    </section>
+
+    <div class="twocol">
+      <section class="panel">
+        <div class="ph"><h2>What happens when you copy</h2></div>
+        <ol class="steps">
+          <li><div><b>Notice the copy</b><p>Each desktop app watches its clipboard through the system's own change notification, so there is no polling delay.</p></div></li>
+          <li><div><b>Filter</b><p>Hash the content to avoid echo loops. Skip anything the password manager flagged as concealed.</p></div></li>
+          <li><div><b>Push small items straight away</b><p>Text, rich text and images up to about 8 MB go out immediately, so the paste on the other device is instant.</p></div></li>
+          <li><div><b>Promise big items</b><p>Copied files send only a name and size. The bytes stream when you paste, straight from the device that copied them.</p></div></li>
+        </ol>
+      </section>
+      <section class="panel">
+        <div class="ph"><h2>Trust and security</h2></div>
+        <ol class="steps">
+          <li><div><b>Pair once</b><p>Scan a QR code or type a six digit code. Each device creates a keypair and the two exchange public keys.</p></div></li>
+          <li><div><b>Mutual handshake every time</b><p>Connections use a Noise handshake over QUIC. Both sides prove their key before a single byte of clipboard moves.</p></div></li>
+          <li><div><b>Your circle only</b><p>Unknown devices are ignored, not prompted. Devices in your circle can send you files without asking, and you can switch that off.</p></div></li>
+          <li><div><b>Revoke anywhere</b><p>Remove a device from any other device and it drops out of the circle immediately.</p></div></li>
+        </ol>
+      </section>
+    </div>
+
+    <section class="panel">
+      <div class="ph"><h2>One core, native shells</h2><small>Networking, crypto and sync live in a single Rust library</small></div>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Platform</th><th>Shell</th><th>Sending</th><th>Receiving</th></tr></thead>
+          <tbody>
+            <tr><td>macOS</td><td><p>Menu bar app (Tauri)</p></td><td><p>Automatic on copy</p></td><td><p>Automatic</p></td></tr>
+            <tr><td>Windows</td><td><p>Tray app (Tauri)</p></td><td><p>Automatic on copy</p></td><td><p>Automatic</p></td></tr>
+            <tr><td>Linux</td><td><p>Tray app (Tauri)</p></td><td><p>Automatic on X11. Wayland limits background clipboard access, so GNOME needs a small extension.</p></td><td><p>Automatic</p></td></tr>
+            <tr><td>Android</td><td><p>Kotlin app with a foreground service</p></td><td><p>One tap. Android 10 and later only let the focused app or the keyboard read the clipboard, so we add a Quick Settings tile, a share target and an optional keyboard.</p></td><td><p>Automatic</p></td></tr>
+            <tr><td>iPhone</td><td><p>No app at first. Apple Continuity plus the MacBook app.</p></td><td><p>Automatic while the MacBook is awake and nearby. iOS does not let third-party apps watch the clipboard, so a later app adds a share sheet and keyboard for when the Mac is away.</p></td><td><p>Automatic through the MacBook.</p></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="ph"><h2>Build order</h2></div>
+      <ol class="phases">
+        <li><span class="tag">Phase 1</span><p>Rust core and the Mac and Windows apps. Text and images sync on the same Wi-Fi. The Mac app is the iPhone bridge, so the iPhone works from day one.</p></li>
+        <li><span class="tag">Phase 2</span><p>Direct file streams with progress, resume and checksums. Drag a file onto a device.</p></li>
+        <li><span class="tag">Phase 3</span><p>Android app, with the send tile and share target.</p></li>
+        <li><span class="tag">Phase 4</span><p>iPhone app with a share sheet and keyboard, for when the MacBook is asleep or away.</p></li>
+        <li><span class="tag">Phase 5</span><p>Tailscale routes, the optional relay, searchable history and per-device rules.</p></li>
+      </ol>
+    </section>
+  </main>
+</div>
+
+<div class="toasts" id="toasts" aria-live="polite"></div>
+
+<div class="modal" id="pairModal" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="pairTitle">
+    <h2 id="pairTitle">Pair a new device</h2>
+    <p>Open Universal Clipboard on the other device and scan this code, or type the six digits. The two devices then swap keys and join your circle.</p>
+    <div class="qrrow">
+      <canvas id="qr" width="132" height="132" aria-label="Example pairing code, not scannable"></canvas>
+      <div><div class="code">482 913</div><p style="font-size:12.5px">Example code. It expires after two minutes.</p></div>
+    </div>
+    <div class="acts">
+      <button class="btn" id="pairClose">Close</button>
+      <button class="btn primary" id="pairSim">Simulate pairing a Linux laptop</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const $=(s,r=document)=>r.querySelector(s), $$=(s,r=document)=>[...r.querySelectorAll(s)];
+const NS='http://www.w3.org/2000/svg';
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const trunc=(s,n)=>s.length>n?s.slice(0,n-1)+'…':s;
+const clamp=(v,a,b)=>Math.min(b,Math.max(a,v));
+const reduced=matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+const I={
+  laptop:'<rect x="4.5" y="5" width="15" height="10.5" rx="1.5"/><path d="M2.5 19h19"/>',
+  desktop:'<rect x="3" y="4" width="18" height="12" rx="1.5"/><path d="M9 20h6M12 16v4"/>',
+  phone:'<rect x="7" y="2.5" width="10" height="19" rx="2.2"/><path d="M11 18.5h2"/>',
+  text:'<path d="M5 7h14M5 12h14M5 17h9"/>',
+  link:'<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>',
+  code:'<path d="M8 8l-4 4 4 4M16 8l4 4-4 4M13.5 6l-3 12"/>',
+  image:'<rect x="3.5" y="4.5" width="17" height="15" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="M4 17l5-4.5 4 3.5 3-2.5 4 3.5"/>'
+  ,file:'<path d="M7 3h7l4 4v14H7z"/><path d="M14 3v4h4"/>'
+};
+const svg=(n,sz=16)=>`<svg class="ic" width="${sz}" height="${sz}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${I[n]}</svg>`;
+const TYPE_ICON={text:'text',link:'link',code:'code',image:'image',file:'file'};
+const tchip=t=>`<span class="tchip" title="${t}">${svg(TYPE_ICON[t],15)}</span>`;
+
+const fmtSize=b=>b<1e3?b+' B':b<1e6?(b/1e3).toFixed(b<1e4?1:0)+' KB':b<1e9?(b/1e6).toFixed(b<1e7?1:0)+' MB':(b/1e9).toFixed(1)+' GB';
+const fmtSecs=s=>s<1?'under 1 s':s<60?Math.ceil(s)+' s':Math.floor(s/60)+' min '+Math.round(s%60)+' s';
+const fmtSpd=v=>(v<10?v.toFixed(1):Math.round(v))+' MB/s';
+const fmtAgo=t=>{const s=Math.round((Date.now()-t)/1000);return s<10?'just now':s<60?s+' s ago':s<3600?Math.floor(s/60)+' min ago':Math.floor(s/3600)+' hr ago'};
+
+/* ---------- model ---------- */
+const DEVICES=[
+  {id:'mac',name:'MacBook Pro',os:'macOS',kind:'laptop',paste:'⌘V',cap:110,note:'Syncs automatically',mobile:false},
+  {id:'win',name:'Windows desktop',os:'Windows 11',kind:'desktop',paste:'Ctrl+V',cap:115,note:'Syncs automatically',mobile:false},
+  {id:'and',name:'Pixel 9',os:'Android',kind:'phone',paste:'Long-press, Paste',cap:45,note:'Receives automatically, tap to send',mobile:true},
+  {id:'ios',name:'iPhone 16',os:'iOS',kind:'phone',paste:'Tap, Paste',cap:50,note:'Linked through the MacBook, no app needed',mobile:false,bridged:true}
+];
+const LINUX={id:'lnx',name:'ThinkPad',os:'Linux',kind:'laptop',paste:'Ctrl+V',cap:100,note:'Syncs automatically',mobile:false};
+
+const MODES={
+  lan:{lat:[2,9],f:1,path:'Wi-Fi',note:'Every device is on the same network. They find each other with mDNS and talk directly, so nothing leaves the building.'},
+  ts:{lat:[18,46],f:.45,path:'Tailscale',note:'The devices are on different networks and reach each other over your tailnet. The Pixel is on mobile data, so its route falls back to a Tailscale relay.'},
+  relay:{lat:[55,130],f:.14,path:'Relay',note:'No direct route exists, so encrypted traffic goes through a relay. The relay only ever sees ciphertext.'}
+};
+
+const state={mode:'lan',from:'mac',devices:DEVICES.slice(),clip:{},history:[],transfers:[],pad:{},staged:[],targets:new Set(),draft:null,ask:false,macAsleep:false};
+const entries={};
+let _id=0; const uid=()=>'i'+(++_id);
+const dev=id=>state.devices.find(d=>d.id===id);
+const key=(a,b)=>[a,b].sort().join('-');
+/* The iPhone has no app of its own: it reaches everything else through the MacBook. */
+const online=d=>!(state.macAsleep&&(d.id==='mac'||d.id==='ios'));
+const isIos=(a,b)=>(a==='ios'||b==='ios')&&a!=='mac'&&b!=='mac';
+const route=(a,b)=>isIos(a,b)?[[a,'mac'],['mac',b]]:[[a,b]];
+const lineExists=(a,b)=>online(a)&&online(b)&&!isIos(a.id,b.id);
+function hash(a,b){let x=0;for(const c of key(a,b))x=(x*31+c.charCodeAt(0))>>>0;return (x%1000)/1000}
+
+function link(a,b){
+  if(a.id==='ios'||b.id==='ios'){
+    const o=a.id==='ios'?b:a,ph=dev('ios'),mac=dev('mac');
+    const hop={lat:Math.round(40+hash('ios','mac')*25),bw:Math.min(ph.cap,mac.cap)*.8};
+    if(o.id==='mac')return {lat:hop.lat,bw:hop.bw,path:'Apple Continuity',style:'apple'};
+    const l=link(o,mac);
+    return {lat:l.lat+hop.lat,bw:Math.min(l.bw,hop.bw),path:'Via MacBook',style:'apple'};
+  }
+  const m=MODES[state.mode], r=hash(a.id,b.id);
+  let lat=Math.round(m.lat[0]+(m.lat[1]-m.lat[0])*r), f=m.f*(.85+.15*r), style=state.mode, path=m.path+' direct';
+  if(state.mode==='ts'&&(a.id==='and'||b.id==='and')){lat=Math.round(72+r*28);f=.1;style='relay';path='Tailscale relayed'}
+  if(state.mode==='relay')path='Relay';
+  return {lat,bw:Math.min(a.cap,b.cap)*f,path,style};
+}
+
+/* ---------- samples ---------- */
+function makeShot(){
+  const c=document.createElement('canvas');c.width=320;c.height=200;const x=c.getContext('2d');
+  x.fillStyle='#DDE3EA';x.fillRect(0,0,320,200);
+  x.fillStyle='#fff';x.fillRect(14,14,292,172);
+  x.fillStyle='#EEF1F5';x.fillRect(14,14,292,22);
+  ['#F26B5E','#F2B54E','#58C27D'].forEach((col,i)=>{x.fillStyle=col;x.beginPath();x.arc(28+i*14,25,4,0,7);x.fill()});
+  x.fillStyle='#2446F2';[[30,150,22,26],[62,128,22,48],[94,110,22,66],[126,92,22,84],[158,118,22,58]].forEach(([a,b,w,h])=>x.fillRect(a,b,w,h));
+  x.fillStyle='#C9D0DA';for(let i=0;i<5;i++)x.fillRect(200,56+i*18,86-(i%3)*18,8);
+  return c.toDataURL('image/png');
+}
+const SHOT=makeShot();
+const CLIP_SAMPLES=[
+  {label:'Text',type:'text',content:'Meeting moved to 3:30 pm, Room 4B. Bring the signed NDA.'},
+  {label:'Link',type:'link',content:'https://example.com/invoices/2041'},
+  {label:'Command',type:'code',content:'ssh deploy@10.0.4.17 -p 2222'},
+  {label:'Screenshot',type:'image',name:'Screenshot 2026-10-02 at 10.14.22.png',size:1.2e6,src:SHOT},
+  {label:'240 MB video',type:'file',name:'site-visit.mov',size:240e6}
+];
+const FILE_SAMPLES=[
+  {name:'Q3-report.pdf',size:4.2e6},{name:'IMG_4821.HEIC',size:3.1e6},
+  {name:'design-assets.zip',size:312e6},{name:'site-visit.mov',size:1.8e9}
+];
+
+/* ---------- mesh ---------- */
+let meshPos={};
+function renderMesh(){
+  const ds=state.devices,n=ds.length,cx=260,cy=170,rx=190,ry=105;
+  meshPos={};
+  ds.forEach((d,i)=>{const a=-Math.PI/2+i*2*Math.PI/n;meshPos[d.id]={x:cx+rx*Math.cos(a),y:cy+ry*Math.sin(a)}});
+  let L='',T='',N='';
+  for(let i=0;i<n;i++)for(let j=i+1;j<n;j++){
+    const a=ds[i],b=ds[j];
+    if(!lineExists(a,b))continue;
+    const l=link(a,b),A=meshPos[a.id],B=meshPos[b.id];
+    L+=`<line class="lk ${l.style}" data-k="${key(a.id,b.id)}" x1="${A.x}" y1="${A.y}" x2="${B.x}" y2="${B.y}"/>`;
+  }
+  const S=dev(state.from);
+  ds.forEach(d=>{
+    if(d.id===S.id||!lineExists(S,d))return;
+    const l=link(S,d),A=meshPos[S.id],B=meshPos[d.id];
+    T+=`<text class="lat" x="${A.x+(B.x-A.x)*.42}" y="${A.y+(B.y-A.y)*.42}" text-anchor="middle" dy="4">${l.lat} ms</text>`;
+  });
+  ds.forEach(d=>{
+    const p=meshPos[d.id],sel=d.id===state.from,off=!online(d);
+    N+=`<g class="node${sel?' sel':''}${off?' off':''}" data-id="${d.id}" tabindex="0" role="button" aria-pressed="${sel}" aria-label="${off?esc(d.name)+' is offline':'Send from '+esc(d.name)}" transform="translate(${p.x} ${p.y})">
+      <circle class="body" r="30"/>
+      <svg x="-13" y="-13" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${I[d.kind]}</svg>
+      <circle class="on" cx="22" cy="-22" r="5"/>
+      <text y="52">${esc(d.name)}</text><text class="os" y="68">${esc(d.os)}</text></g>`;
+  });
+  $('#links').innerHTML=L+T;
+  $('#nodes').innerHTML=N;
+  lastHot='';
+}
+function fly(a,b,dur,cb){
+  const A=meshPos[a],B=meshPos[b];
+  if(!A||!B){cb&&cb();return}
+  if(reduced)dur=60;
+  const c=document.createElementNS(NS,'circle');c.setAttribute('r',5);c.setAttribute('class','pkt');
+  $('#packets').appendChild(c);
+  const lk=$(`.lk[data-k="${key(a,b)}"]`);lk&&lk.classList.add('flow');
+  const t0=performance.now();
+  (function step(now){
+    const p=clamp((now-t0)/dur,0,1),e=p<.5?2*p*p:1-Math.pow(-2*p+2,2)/2;
+    c.setAttribute('cx',A.x+(B.x-A.x)*e);c.setAttribute('cy',A.y+(B.y-A.y)*e);
+    if(p<1)requestAnimationFrame(step);else{c.remove();lk&&lk.classList.remove('flow');cb&&cb()}
+  })(t0);
+}
+function flyRoute(a,b,dur,cb){
+  const hs=route(a,b);let i=0;
+  (function next(){
+    if(i>=hs.length){cb&&cb();return}
+    const [x,y]=hs[i++];fly(x,y,dur/hs.length,next);
+  })();
+}
+function pulse(id){
+  const p=meshPos[id];if(!p)return;
+  const c=document.createElementNS(NS,'circle');c.setAttribute('class','pulse');c.setAttribute('cx',p.x);c.setAttribute('cy',p.y);c.setAttribute('r',30);
+  $('#packets').appendChild(c);setTimeout(()=>c.remove(),950);
+}
+
+/* ---------- network strip ---------- */
+const median=a=>{const s=a.slice().sort((x,y)=>x-y),m=s.length>>1;return s.length%2?s[m]:Math.round((s[m-1]+s[m])/2)};
+function renderNet(){
+  $('#netNote').textContent=MODES[state.mode].note;
+  $$('#modes button').forEach(b=>b.setAttribute('aria-checked',b.dataset.mode===state.mode));
+  if(state.macAsleep)$('#netNote').textContent+=' The MacBook is asleep, so the iPhone is out of reach until it wakes.';
+  const S=dev(state.from),on=state.devices.filter(online),ls=on.filter(d=>d!==S).map(d=>link(S,d));
+  const apple=ls.filter(l=>l.style==='apple').length,relayed=ls.filter(l=>l.style==='relay').length,direct=ls.length-apple-relayed;
+  const parts=[];
+  if(direct)parts.push(`${direct} direct`);
+  if(relayed)parts.push(`${relayed} ${state.mode==='relay'?'through relay':'relayed'}`);
+  if(apple)parts.push(`${apple} through Apple`);
+  const items=[['Devices online',`${on.length} of ${state.devices.length}`],['Median latency from '+S.name,(ls.length?median(ls.map(l=>l.lat)):0)+' ms'],['Routes',parts.join(', ')||'None'],['Encryption','End to end']];
+  $('#netStats').innerHTML=items.map(([k,v])=>`<div class="stat-i"><span>${esc(k)}</span><b>${esc(v)}</b></div>`).join('');
+}
+
+/* ---------- composer ---------- */
+function renderFrom(){
+  $('#fromChips').innerHTML=state.devices.map(d=>`<button class="cbtn" data-from="${d.id}" aria-pressed="${d.id===state.from}"${online(d)?'':' disabled'}>${svg(d.kind)}${esc(d.name)}</button>`).join('');
+  const S=dev(state.from);
+  $('#copyBtn').textContent=S.mobile?`Send clipboard from ${S.name}`:`Copy on ${S.name}`;
+  $('#copyHint').textContent=S.mobile?'Android only lets the focused app read the clipboard, so you tap once to send.'
+    :S.bridged?'Apple carries the copy to the MacBook. The Mac app forwards it to your other devices.'
+    :`The ${S.os} app watches the clipboard and syncs the moment you copy.`;
+}
+function renderTargets(){
+  const others=state.devices.filter(d=>d.id!==state.from&&online(d));
+  $('#toChips').innerHTML=others.map(d=>`<button class="cbtn" data-to="${d.id}" aria-pressed="${state.targets.has(d.id)}">${svg(d.kind)}${esc(d.name)}</button>`).join('');
+  updateSend();
+}
+function resetTargets(){state.targets=new Set(state.devices.filter(d=>d.id!==state.from&&online(d)).map(d=>d.id));renderTargets()}
+function updateSend(){
+  const b=$('#sendBtn'),n=state.targets.size,f=state.staged.length;
+  b.disabled=!(n&&f);
+  b.textContent=f?`Send ${f===1?'file':f+' files'} to ${n} device${n===1?'':'s'}`:'Send';
+}
+function setDraft(d){
+  state.draft=d;
+  const ta=$('#clipText'),box=$('#draftBox');
+  if(d.type==='image'||d.type==='file'){
+    ta.hidden=true;box.hidden=false;
+    box.innerHTML=(d.type==='image'?`<img class="thumb" style="width:84px;height:54px" src="${d.src}" alt="">`:tchip('file'))+`<span class="pv">${esc(d.name)}<small>${fmtSize(d.size)}${d.type==='file'?' · bytes stream when pasted':''}</small></span>`;
+  }else{ta.hidden=false;box.hidden=true;ta.value=d.content}
+}
+function draftFromText(v){
+  const t=v.trim();
+  state.draft=!t?null:/^https?:\/\/\S+$/.test(t)?{type:'link',content:t}:{type:'text',content:v};
+}
+function renderStaged(){
+  $('#staged').innerHTML=state.staged.map((f,i)=>`<li>${svg('file')}<span class="n">${esc(f.name)}</span><small>${fmtSize(f.size)}</small><button class="x" data-rm="${i}" aria-label="Remove ${esc(f.name)}">×</button></li>`).join('');
+  updateSend();
+}
+
+/* ---------- cards ---------- */
+function previewHTML(e){
+  if(e.type==='image')return `<img class="thumb" src="${e.src}" alt=""><span class="pv">${esc(trunc(e.name,34))}<small>${fmtSize(e.size)}</small></span>`;
+  if(e.type==='file')return `${tchip('file')}<span class="pv">${esc(e.name)}<small>${fmtSize(e.size)} · streams when pasted</small></span>`;
+  return `${tchip(e.type)}<span class="pv ${e.type==='code'?'mono':''} ${e.type==='link'?'lnk':''}">${esc(trunc(e.content,80))}</span>`;
+}
+function transferStat(t){
+  if(t.state==='pending')return `Waiting for ${dev(t.to)?.name} to accept`;
+  if(t.state==='declined')return `Declined on ${dev(t.to)?.name}`;
+  if(t.state==='done')return `Done in ${fmtSecs(t.real)} at ${fmtSpd(t.bw)} · checksum verified`;
+  const spd=t.bw*(.96+.04*Math.sin(performance.now()/250));
+  return `${Math.round(t.p*100)}% · ${fmtSpd(spd)} · ${fmtSecs(t.real*(1-t.p))} left`;
+}
+function padItem(p){
+  const e=entries[p.eid];
+  if(e.type==='image')return `<div class="pi"><img src="${e.src}" alt=""><small>${esc(e.name)}</small></div>`;
+  if(e.type==='file'){
+    const t=p.tid&&state.transfers.find(x=>x.id===p.tid);
+    return `<div class="pi fileitem"${t?` data-tid="${t.id}"`:''}>${tchip('file')}<div><b style="font-weight:500">${esc(e.name)}</b><div class="bar"><i style="width:${t?Math.round(t.p*100):100}%"></i></div><small class="stat">${t?transferStat(t):'Already on this device'}</small></div></div>`;
+  }
+  return `<div class="pi ${e.type==='code'?'mono':''}">${esc(e.content)}</div>`;
+}
+function renderCards(){
+  $('#devices').innerHTML=state.devices.map(d=>`<article class="dev" data-card="${d.id}"></article>`).join('');
+  state.devices.forEach(d=>fillCard(d.id));
+}
+function fillCard(id,flash){
+  const d=dev(id),el=$(`[data-card="${id}"]`);if(!el)return;
+  const e=state.clip[id]?entries[state.clip[id]]:null,S=dev(state.from);
+  const off=!online(d);
+  let badge='<span class="badge sel">Sending</span>';
+  if(off)badge='<span class="badge off"><i></i>Offline</span>';
+  else if(id!==S.id){const l=link(S,d);badge=`<span class="badge ${l.style}"><i></i>${l.path} · ${l.lat} ms</span>`}
+  el.classList.toggle('isSrc',id===S.id);
+  el.classList.toggle('offline',off);
+  const pad=(state.pad[id]||[]).map(padItem).join('')||'<p class="empty">Nothing pasted yet</p>';
+  const why=id==='ios'?'Out of reach. The iPhone syncs through the MacBook, which is asleep. Anything you copy now waits for it to wake.':'Asleep. It stays out of the circle until it wakes.';
+  el.innerHTML=`<div class="chead"><span class="tchip">${svg(d.kind,20)}</span><div><h3>${esc(d.name)}</h3><p>${esc(d.os)} · ${esc(d.note)}</p></div></div>
+    <div>${badge}</div>
+    <div class="clip"><span class="lbl">On this clipboard</span>${off?`<span class="warnnote">${why}</span>`:e?`<div class="prev">${previewHTML(e)}</div><span class="src">${e.from===id?'Copied here':'From '+esc(dev(e.from)?.name||'a device')}</span>`:'<span class="src">Empty</span>'}</div>
+    <div class="pad" aria-label="Paste area on ${esc(d.name)}">${pad}</div>
+    <div class="cfoot"><button class="btn primary sm" data-paste="${id}"${off?' disabled':''}>Paste <kbd>${esc(d.paste)}</kbd></button><button class="btn ghost sm" data-clear="${id}">Clear</button></div>`;
+  if(flash&&!reduced){el.classList.remove('flash');void el.offsetWidth;el.classList.add('flash')}
+}
+
+/* ---------- history + transfers ---------- */
+function renderHistory(){
+  $('#history').innerHTML=state.history.map(id=>{
+    const e=entries[id],body=e.type==='image'||e.type==='file'?esc(e.name):esc(trunc(e.content,70));
+    const size=e.type==='text'||e.type==='link'||e.type==='code'?fmtSize(new Blob([e.content]).size):fmtSize(e.size);
+    return `<li>${tchip(e.type)}<div class="hb"><div class="tn ${e.type==='code'?'mono':''}">${body}</div><div class="hm">${esc(dev(e.from)?.name||'')} · ${fmtAgo(e.t)} · ${size}</div></div><button class="btn sm" data-use="${id}">Copy again</button></li>`;
+  }).join('')||'<li class="empty-l">Nothing copied yet.</li>';
+}
+function renderTransfers(){
+  $('#transfers').innerHTML=state.transfers.map(t=>{
+    const a=dev(t.from),b=dev(t.to);
+    const acts=t.state==='pending'?`<div class="tact"><button class="btn primary sm" data-accept="${t.id}">Accept on ${esc(b.name)}</button><button class="btn sm" data-decline="${t.id}">Decline</button></div>`:'';
+    return `<li data-tid="${t.id}">${tchip('file')}<div class="tb"><div class="tn">${esc(t.name)} <span class="sz">${fmtSize(t.size)}</span></div><div class="tm">${esc(a.name)} to ${esc(b.name)} · ${esc(t.path)}${t.kind==='paste'?' · pasted':''}</div><div class="bar"><i style="width:${Math.round(t.p*100)}%;${t.state==='done'?'background:var(--ok)':''}"></i></div><div class="stat">${transferStat(t)}</div>${acts}</div></li>`;
+  }).join('')||'<li class="empty-l">No transfers yet. Send a file from the Files tab.</li>';
+}
+function updateTransferDom(t){
+  $$(`[data-tid="${t.id}"]`).forEach(el=>{
+    const i=$('.bar i',el),s=$('.stat',el);
+    if(i){i.style.width=Math.round(t.p*100)+'%';i.style.background=t.state==='done'?'var(--ok)':''}
+    if(s)s.textContent=transferStat(t);
+  });
+}
+
+/* ---------- actions ---------- */
+function toast(msg){
+  const t=document.createElement('div');t.className='toast';t.textContent=msg;$('#toasts').appendChild(t);
+  setTimeout(()=>t.remove(),3600);
+  while($('#toasts').children.length>3)$('#toasts').firstChild.remove();
+}
+function publish(entry,record=true){
+  const src=state.from,S=dev(src);
+  entry.from=src;entry.t=Date.now();
+  if(!entry.id){entry.id=uid();entries[entry.id]=entry}
+  state.history=state.history.filter(x=>x!==entry.id);state.history.unshift(entry.id);
+  state.clip[src]=entry.id;fillCard(src,true);pulse(src);
+  const others=state.devices.filter(d=>d.id!==src&&online(d)),lats=[];
+  others.forEach(d=>{
+    const l=link(S,d);lats.push(l.lat);
+    flyRoute(src,d.id,450+l.lat*4,()=>{
+      const cur=entries[state.clip[d.id]];
+      if(!cur||cur.t<=entry.t){state.clip[d.id]=entry.id;fillCard(d.id,true)}
+    });
+  });
+  renderHistory();
+  toast(entry.type==='file'
+    ?`Copied ${entry.name} on ${S.name}. It streams when you paste.`
+    :`Copied on ${S.name}. Synced to ${others.length} devices, median ${median(lats)} ms.`);
+}
+function startTransfer({name,size,from,to,kind='file',auto=false}){
+  const l=link(dev(from),dev(to)),real=size/(l.bw*1e6);
+  const t={id:uid(),name,size,from,to,kind,state:(state.ask&&!auto)?'pending':'active',p:0,bw:l.bw,real,demo:clamp(real/5,1.4,7),path:l.path};
+  state.transfers.unshift(t);
+  if(t.state==='active')flyRoute(from,to,450+l.lat*4);
+  return t;
+}
+function paste(id){
+  const cid=state.clip[id];
+  if(!cid){toast('That clipboard is empty.');return}
+  const e=entries[cid],item={eid:cid};
+  if(e.type==='file'&&e.from!==id){item.tid=startTransfer({name:e.name,size:e.size,from:e.from,to:id,kind:'paste',auto:true}).id;renderTransfers()}
+  (state.pad[id]=state.pad[id]||[]).unshift(item);
+  fillCard(id);
+}
+function setFrom(id){
+  if(!online(dev(id))){toast(`${dev(id).name} is out of reach while the MacBook sleeps.`);return}
+  state.from=id;resetTargets();renderMesh();renderFrom();renderNet();
+  state.devices.forEach(d=>fillCard(d.id));
+}
+function setMode(m){
+  state.mode=m;renderMesh();renderNet();state.devices.forEach(d=>fillCard(d.id));
+  const ms={lan:'Back on Wi-Fi. Direct routes to every device.',ts:'Switched to Tailscale. Reconnected in 310 ms.',relay:'Direct routes blocked. Using the encrypted relay.'}[m];
+  toast(ms);
+}
+function addFiles(list){
+  [...list].forEach(f=>state.staged.push({name:f.name,size:f.size}));
+  renderStaged();
+}
+
+/* ---------- loop ---------- */
+let last=performance.now(),lastHot='';
+function frame(now){
+  const dt=(now-last)/1000;last=now;
+  let finished=false;
+  const hot=new Set();
+  for(const t of state.transfers){
+    if(t.state!=='active')continue;
+    route(t.from,t.to).forEach(([x,y])=>hot.add(key(x,y)));
+    t.p=Math.min(1,t.p+dt/t.demo);
+    if(t.p>=1){t.state='done';finished=true;if(t.kind==='paste')fillCard(t.to)}
+    updateTransferDom(t);
+  }
+  const hk=[...hot].join();
+  if(hk!==lastHot){lastHot=hk;$$('.lk').forEach(l=>l.classList.toggle('hot',hot.has(l.dataset.k)))}
+  if(finished){renderTransfers();toast('Transfer finished and verified.')}
+  requestAnimationFrame(frame);
+}
+
+/* ---------- pairing modal ---------- */
+function drawQR(){
+  const c=$('#qr'),x=c.getContext('2d'),N=25,s=c.width/N;
+  x.fillStyle='#fff';x.fillRect(0,0,c.width,c.height);x.fillStyle='#0E1620';
+  let r=20261002;const rnd=()=>(r=(r*1103515245+12345)&0x7fffffff)/0x7fffffff;
+  const fin=(i,j)=>(i<8&&j<8)||(i>=N-8&&j<8)||(i<8&&j>=N-8);
+  for(let j=0;j<N;j++)for(let i=0;i<N;i++)if(!fin(i,j)&&rnd()>.52)x.fillRect(i*s,j*s,s,s);
+  [[0,0],[N-7,0],[0,N-7]].forEach(([ox,oy])=>{
+    x.fillStyle='#0E1620';x.fillRect(ox*s,oy*s,7*s,7*s);
+    x.fillStyle='#fff';x.fillRect((ox+1)*s,(oy+1)*s,5*s,5*s);
+    x.fillStyle='#0E1620';x.fillRect((ox+2)*s,(oy+2)*s,3*s,3*s);
+  });
+}
+function openPair(){
+  $('#pairModal').hidden=false;
+  const has=!!dev('lnx');$('#pairSim').disabled=has;$('#pairSim').textContent=has?'ThinkPad is already paired':'Simulate pairing a Linux laptop';
+  $('#pairClose').focus();
+}
+function closePair(){$('#pairModal').hidden=true;$('#pairBtn').focus()}
+
+/* ---------- events ---------- */
+document.addEventListener('click',e=>{
+  const t=e.target.closest('button,.node,.drop');if(!t)return;
+  if(t.dataset.view){
+    ['demo','how'].forEach(v=>{$('#view-'+v).hidden=v!==t.dataset.view;$('#tab-'+v).setAttribute('aria-selected',v===t.dataset.view)});return;
+  }
+  if(t.dataset.mode)return setMode(t.dataset.mode);
+  if(t.dataset.from)return setFrom(t.dataset.from);
+  if(t.classList.contains('node'))return setFrom(t.dataset.id);
+  if(t.dataset.sub){
+    ['clipboard','files'].forEach(s=>{
+      const on=s===t.dataset.sub,p=$('#pane'+s[0].toUpperCase()+s.slice(1));
+      p.hidden=!on;p.style.display=on?'flex':'none';$('#sub-'+s).setAttribute('aria-selected',on);
+    });return;
+  }
+  if(t.dataset.to){const id=t.dataset.to;state.targets.has(id)?state.targets.delete(id):state.targets.add(id);return renderTargets()}
+  if(t.dataset.rm){state.staged.splice(+t.dataset.rm,1);return renderStaged()}
+  if(t.dataset.paste)return paste(t.dataset.paste);
+  if(t.dataset.clear){state.pad[t.dataset.clear]=[];return fillCard(t.dataset.clear)}
+  if(t.dataset.use){const en=entries[t.dataset.use];return publish(en,false)}
+  if(t.dataset.accept){const x=state.transfers.find(y=>y.id===t.dataset.accept);x.state='active';flyRoute(x.from,x.to,500);return renderTransfers()}
+  if(t.dataset.decline){state.transfers.find(y=>y.id===t.dataset.decline).state='declined';return renderTransfers()}
+  if(t.classList.contains('drop'))return $('#fileIn').click();
+  switch(t.id){
+    case 'pairBtn':return openPair();
+    case 'pairClose':return closePair();
+    case 'copyBtn':{
+      if(!state.draft){toast('Type or pick something to copy first.');return}
+      const d=state.draft;publish({...d});return;
+    }
+    case 'sendBtn':{
+      const files=state.staged.slice(),to=[...state.targets];
+      to.forEach(id=>files.forEach(f=>startTransfer({name:f.name,size:f.size,from:state.from,to:id})));
+      toast(`Sending ${files.length===1?files[0].name:files.length+' files'} to ${to.length} device${to.length===1?'':'s'}.`);
+      state.staged=[];renderStaged();renderTransfers();return;
+    }
+    case 'pairSim':{
+      state.devices.push(LINUX);state.clip[LINUX.id]=state.history[0];
+      closePair();resetTargets();renderMesh();renderFrom();renderNet();renderCards();
+      toast('ThinkPad joined your circle. It already has your latest clipboard.');return;
+    }
+  }
+  if(t.dataset.sample!==undefined){return}
+});
+$('#clipSamples').addEventListener('click',e=>{const b=e.target.closest('[data-i]');if(b)setDraft({...CLIP_SAMPLES[+b.dataset.i]})});
+$('#fileSamples').addEventListener('click',e=>{const b=e.target.closest('[data-i]');if(b){state.staged.push({...FILE_SAMPLES[+b.dataset.i]});renderStaged()}});
+$('#clipText').addEventListener('input',e=>draftFromText(e.target.value));
+$('#ask').addEventListener('change',e=>{state.ask=e.target.checked});
+$('#macSleep').addEventListener('change',e=>{
+  state.macAsleep=e.target.checked;
+  if(!online(dev(state.from)))state.from=state.devices.find(online).id;
+  resetTargets();renderMesh();renderFrom();renderNet();
+  if(!state.macAsleep){
+    const latest=state.history[0];
+    state.devices.forEach(d=>{if(latest&&state.clip[d.id]!==latest)state.clip[d.id]=latest});
+    renderCards();
+    toast('MacBook woke up. The iPhone rejoined and caught up on your latest copy.');
+  }else{
+    renderCards();
+    toast('MacBook asleep. The iPhone is out of reach. Windows, Android and Linux keep syncing directly.');
+  }
+});
+$('#fileIn').addEventListener('change',e=>{addFiles(e.target.files);e.target.value=''});
+const drop=$('#drop');
+['dragenter','dragover'].forEach(n=>drop.addEventListener(n,e=>{e.preventDefault();drop.classList.add('over')}));
+['dragleave','drop'].forEach(n=>drop.addEventListener(n,e=>{e.preventDefault();drop.classList.remove('over')}));
+drop.addEventListener('drop',e=>addFiles(e.dataTransfer.files));
+document.addEventListener('keydown',e=>{
+  if(e.key==='Escape'&&!$('#pairModal').hidden)closePair();
+  const n=e.target.closest&&e.target.closest('.node');
+  if(n&&(e.key==='Enter'||e.key===' ')){e.preventDefault();setFrom(n.dataset.id)}
+  if(e.target===drop&&(e.key==='Enter'||e.key===' ')){e.preventDefault();$('#fileIn').click()}
+});
+$('#pairModal').addEventListener('click',e=>{if(e.target.id==='pairModal')closePair()});
+
+/* ---------- boot ---------- */
+(function init(){
+  const now=Date.now();
+  const e1={id:uid(),type:'text',content:'Meeting moved to 3:30 pm, Room 4B. Bring the signed NDA.',from:'mac',t:now-2*60e3};
+  const e2={id:uid(),type:'code',content:'ssh deploy@10.0.4.17 -p 2222',from:'win',t:now-14*60e3};
+  entries[e1.id]=e1;entries[e2.id]=e2;state.history=[e1.id,e2.id];
+  DEVICES.forEach(d=>state.clip[d.id]=e1.id);
+  $('#clipSamples').innerHTML=CLIP_SAMPLES.map((s,i)=>`<button class="cbtn" data-i="${i}">${svg(TYPE_ICON[s.type])}${esc(s.label)}</button>`).join('');
+  $('#fileSamples').innerHTML=FILE_SAMPLES.map((s,i)=>`<button class="cbtn" data-i="${i}">${svg('file')}${esc(s.name)} <span class="sz">${fmtSize(s.size)}</span></button>`).join('');
+  const seed=startTransfer({name:'Q3-report.pdf',size:4.2e6,from:'mac',to:'and',auto:true});
+  seed.state='done';seed.p=1;
+  setDraft({...CLIP_SAMPLES[0]});
+  resetTargets();renderMesh();renderFrom();renderNet();renderCards();renderHistory();renderTransfers();drawQR();
+  setInterval(renderHistory,20000);
+  requestAnimationFrame(frame);
+})();
+</script>
